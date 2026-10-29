@@ -132,6 +132,9 @@ export async function searchTokens(query: string): Promise<TokenMarket[]> {
   const response = exactAddress ? await getJson<DexPair[]>(url) : await getJson<{ pairs?: DexPair[] }>(url).then(result => result.pairs ?? []);
   const tokens = normalizePairs(response)
     .filter(token => !exactAddress || token.address.toLowerCase() === normalizedQuery.toLowerCase())
+    // Symbol/name searches can include counterfeit lookalikes. Put the most
+    // actively traded candidate first; the mint remains visible for verification.
+    .sort((a, b) => b.volume24h - a.volume24h || b.liquidityUsd - a.liquidityUsd)
     .slice(0, 30);
   cache.set(key, { data: tokens, expires: Date.now() + TTL });
   return tokens;
