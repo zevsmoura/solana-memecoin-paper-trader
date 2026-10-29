@@ -48,9 +48,10 @@ For a local smoke test without an external market connection, set `MARKET_DATA_M
 ## Architecture
 
 - Next.js App Router with TypeScript, Tailwind CSS 4, and server-rendered market/account pages.
-- `src/lib/price-provider.ts` isolates public market APIs. DexScreener supplies name/mint search, profiles, pool prices, activity, and artwork. The explore feed combines recently profiled and boosted Solana mints, then filters out pools below the tradeable liquidity floor.
-- The market terminal offers Trending, New pairs, Top volume, and Top gainers views. Mint addresses remain visible because token names, symbols, and logos can be impersonated.
-- Token pages embed GeckoTerminal's interactive chart for the selected Solana pool. The app also stores one market snapshot per token per minute, keeps up to 14 days, and uses the latest saved market catalogue when live discovery is unavailable.
+- `src/lib/price-provider.ts` isolates public market APIs. DexScreener supplies name/mint search, profiles, boost activity, prices, trading activity, and artwork. GeckoTerminal adds Solana new-pool and top-pool discovery plus pool OHLCV candles.
+- The market terminal refreshes the discovery catalogue every 45 seconds while visible, offers Trending, New pairs, Top volume, and Top gainers views, and lets players sort each market-data column in either direction. Search suggestions appear as the player types.
+- Token pages render candlesticks with TradingView Lightweight Charts using GeckoTerminal pool data. The chart offers 1m, 5m, 15m, 1h, 4h, and 1d intervals. The app also stores one market snapshot per token per minute, keeps up to 14 days, and uses the latest saved market catalogue when live discovery is unavailable.
+- The instant trade panel has editable, browser-saved SOL buy presets and percentage sell presets. Each preset executes immediately through the server-side paper-trade validator.
 - Server-only trade execution fetches current prices, verifies pool liquidity and holdings, applies 1% slippage and a 0.5% fee, and records trades. Balances are stored as integer lamports (`BigInt`); token quantities and market prices are persisted as decimal strings.
 - Prisma stores users, holdings, trades, the discovered token catalogue, and timestamped market snapshots. The default `prisma/schema.prisma` uses SQLite locally. Vercel uses `prisma/schema.postgresql.prisma`; its build command applies the schema and generates the matching client against the configured Postgres database.
 - Passwords use bcrypt hashes. Sessions are signed JWTs in HTTP-only, SameSite cookies. No wallet or key handling exists.
@@ -65,7 +66,7 @@ For a local smoke test without an external market connection, set `MARKET_DATA_M
 
 ## Known limitations
 
-- Free market-data providers can be unavailable or delayed. The browse feed includes DexScreener-profiled or boosted tokens with active liquidity; it is not a complete index of every mint on Solana. Search by exact mint to open any token DexScreener indexes.
+- Free market-data providers can be unavailable or delayed. Discovery combines recent and top pools with DexScreener's recent profiles and boosts; it is not a complete index of every mint on Solana. Search by exact mint to open any token DexScreener indexes. Thin pools can appear in discovery, but server-side checks block trading below the configured liquidity minimum.
 - Daily and weekly leaderboard filters count trades in those periods; return percentage is still measured against the original 10 SOL baseline because the app does not yet store balance snapshots.
 - The in-memory rate limiter resets on server restarts and does not coordinate across serverless instances.
 - Saved market snapshots cover tokens users discover or open, are sampled at most once per minute, and are pruned after 14 days. Historical prices for every Solana token are not retained.
