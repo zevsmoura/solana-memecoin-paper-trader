@@ -10,7 +10,7 @@ export function TokenImage({ src, symbol, size = 36 }: { src?: string | null; sy
   const showImage = !!src && src !== failedSrc;
   const initials = symbol.slice(0, 2).toUpperCase();
   return <span
-    className="relative grid shrink-0 place-items-center overflow-hidden rounded-full border border-white/[.08] bg-[#1b3428] font-bold text-[#a1eabb]"
+    className="relative grid shrink-0 place-items-center overflow-hidden rounded-full border border-[#354556] bg-[#1b2633] font-bold text-[#b3c5d4]"
     style={{ width: size, height: size, fontSize: Math.max(10, size * .3) }}
     aria-label={`${symbol} token image`}
   >
