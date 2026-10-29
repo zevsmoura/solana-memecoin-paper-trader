@@ -50,22 +50,16 @@ For a local smoke test without an external market connection, set `MARKET_DATA_M
 - Next.js App Router with TypeScript, Tailwind CSS 4, and server-rendered market/account pages.
 - `src/lib/price-provider.ts` isolates public data APIs: DexScreener supplies token search, metadata, and current prices; GeckoTerminal supplies historical OHLC candles because DexScreener does not expose a candle endpoint.
 - Server-only trade execution fetches current prices, verifies pool liquidity and holdings, applies 1% slippage and a 0.5% fee, and records trades. Balances are stored as integer lamports (`BigInt`); token quantities and market prices are persisted as decimal strings.
-- Prisma schema separates users, token holdings, and trade records. SQLite is convenient locally; SQLite files are ephemeral on Vercel serverless instances, so configure managed Postgres for production persistence and change the Prisma datasource provider to `postgresql`.
+- Prisma schema separates users, token holdings, and trade records. The default `prisma/schema.prisma` uses SQLite for local development. Vercel uses `prisma/schema.postgresql.prisma`; its build command syncs that schema and generates the matching client against the configured Postgres database.
 - Passwords use bcrypt hashes. Sessions are signed JWTs in HTTP-only, SameSite cookies. No wallet or key handling exists.
 - Basic security headers are configured in `next.config.ts`; API inputs are validated with Zod and rate limited in-process.
 
 ## Deploy to Vercel
 
-1. Create an empty GitHub repository named `solana-memecoin-paper-trader`, then push this committed `main` branch (the local checkout already has `origin` configured):
-
-   ```bash
-   git push -u origin main
-   ```
-
-2. Import the repository into Vercel.
-3. Configure a managed Postgres database. Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma` and set `DATABASE_URL` to the provider's connection string.
-4. Configure `SESSION_SECRET` (32+ random characters) and the optional trade settings in Vercel environment variables.
-5. Run `pnpm prisma db push` against the production database, then deploy. Keep Prisma Client generation in the build/install lifecycle.
+1. Import `zevsmoura/solana-memecoin-paper-trader` into Vercel.
+2. Attach a managed Postgres database and make its `DATABASE_URL` available to the project.
+3. Configure `SESSION_SECRET` (32+ random characters) and any optional trade settings in Vercel environment variables.
+4. Deploy. `vercel.json` syncs the PostgreSQL schema and generates the matching Prisma Client before building.
 
 ## Known limitations
 

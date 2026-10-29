@@ -1,0 +1,3 @@
+{
+  "buildCommand": "pnpm exec prisma db push --schema prisma/schema.postgresql.prisma && pnpm exec prisma generate --schema prisma/schema.postgresql.prisma && pnpm exec next build"
+}
