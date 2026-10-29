@@ -13,6 +13,12 @@ export type TokenMarket = {
   marketCap: number | null;
   pairAddress: string;
   dexId: string;
+  imageUrl?: string | null;
+  priceChange1h?: number;
+  priceChange6h?: number;
+  buys24h?: number;
+  sells24h?: number;
+  pairCreatedAt?: number | null;
 };
 
 export type DexPair = {
@@ -21,13 +27,16 @@ export type DexPair = {
   pairAddress?: string;
   baseToken?: { address?: string; name?: string; symbol?: string };
   priceUsd?: string | null;
-  priceChange?: { h24?: number };
+  priceChange?: { h1?: number; h6?: number; h24?: number };
   liquidity?: { usd?: number };
   volume?: { h24?: number };
+  txns?: { h24?: { buys?: number; sells?: number } };
   marketCap?: number;
   fdv?: number;
+  pairCreatedAt?: number;
+  info?: { imageUrl?: string };
 };
-type Profile = { chainId?: string; tokenAddress?: string };
+type Profile = { chainId?: string; tokenAddress?: string; icon?: string };
 
 const TTL = 20_000;
 const cache = new Map<string, { expires: number; data: TokenMarket[] }>();
@@ -90,9 +99,25 @@ export function normalizePairs(pairs: DexPair[] = [], minLiquidity = 0): TokenMa
       marketCap: best.marketCap ?? best.fdv ?? null,
       pairAddress: best.pairAddress ?? "",
       dexId: best.dexId ?? "DEX",
+      imageUrl: safeImageUrl(best.info?.imageUrl),
+      priceChange1h: best.priceChange?.h1 ?? 0,
+      priceChange6h: best.priceChange?.h6 ?? 0,
+      buys24h: best.txns?.h24?.buys ?? 0,
+      sells24h: best.txns?.h24?.sells ?? 0,
+      pairCreatedAt: best.pairCreatedAt ?? null,
     });
   }
   return tokens.sort((a, b) => b.liquidityUsd - a.liquidityUsd);
+}
+
+function safeImageUrl(value?: string) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 function memo<T>(map: Map<string, { expires: number; data: T }>, key: string) {
@@ -107,11 +132,27 @@ export async function getDiscoveryTokens(): Promise<TokenMarket[]> {
   const key = "discovery:solana";
   const cached = memo(cache, key);
   if (cached) return cached;
-  const profiles = await getJson<Profile[]>("https://api.dexscreener.com/token-profiles/latest/v1");
-  const addresses = [...new Set(profiles.filter(item => item.chainId === "solana" && item.tokenAddress).map(item => item.tokenAddress!))].slice(0, 30);
+  const sources = await Promise.allSettled([
+    getJson<Profile[]>("https://api.dexscreener.com/token-profiles/latest/v1"),
+    getJson<Profile[]>("https://api.dexscreener.com/token-boosts/latest/v1"),
+    getJson<Profile[]>("https://api.dexscreener.com/token-boosts/top/v1"),
+  ]);
+  const profiles = sources.flatMap(result => result.status === "fulfilled" ? result.value : []);
+  if (!profiles.length) throw new Error("Solana token discovery is temporarily unavailable.");
+  const iconByAddress = new Map<string, string>();
+  const addresses = [...new Set(profiles.filter(item => item.chainId === "solana" && item.tokenAddress).map(item => {
+    if (item.icon) iconByAddress.set(item.tokenAddress!.toLowerCase(), item.icon);
+    return item.tokenAddress!;
+  }))];
   if (!addresses.length) return [];
-  const pairs = await getJson<DexPair[]>(`https://api.dexscreener.com/tokens/v1/solana/${addresses.map(encodeURIComponent).join(",")}`);
+  const chunks = Array.from({ length: Math.ceil(addresses.length / 30) }, (_, index) => addresses.slice(index * 30, (index + 1) * 30));
+  const pairResults = await Promise.allSettled(chunks.map(chunk =>
+    getJson<DexPair[]>(`https://api.dexscreener.com/tokens/v1/solana/${chunk.map(encodeURIComponent).join(",")}`),
+  ));
+  const pairs = pairResults.flatMap(result => result.status === "fulfilled" ? result.value : []);
+  if (!pairs.length) throw new Error("Solana markets are temporarily unavailable.");
   const tokens = normalizePairs(pairs, MIN_LIQUIDITY_USD)
+    .map(token => ({ ...token, imageUrl: token.imageUrl ?? safeImageUrl(iconByAddress.get(token.address.toLowerCase())) }))
     .filter(token => token.volume24h > 0)
     .sort((a, b) => b.volume24h - a.volume24h)
     .slice(0, 30);

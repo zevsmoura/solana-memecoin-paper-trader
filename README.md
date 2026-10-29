@@ -40,7 +40,7 @@ Open http://localhost:3000 and sign up. New accounts start with 10 virtual SOL.
 - `pnpm build` / `pnpm start` — production build and server
 - `pnpm lint` — ESLint
 - `pnpm typecheck` — TypeScript validation
-- `pnpm test` — trade-logic unit tests
+- `pnpm test` — trade and market-provider unit tests
 - `pnpm db:push` — synchronize Prisma schema to the database
 
 For a local smoke test without an external market connection, set `MARKET_DATA_MOCK="true"` in `.env`, run the app in development mode, and use the demo `TEST` token. Never set this for production.
@@ -48,9 +48,11 @@ For a local smoke test without an external market connection, set `MARKET_DATA_M
 ## Architecture
 
 - Next.js App Router with TypeScript, Tailwind CSS 4, and server-rendered market/account pages.
-- `src/lib/price-provider.ts` isolates public data APIs: DexScreener supplies token search, metadata, and current prices; GeckoTerminal supplies historical OHLC candles because DexScreener does not expose a candle endpoint.
+- `src/lib/price-provider.ts` isolates public market APIs. DexScreener supplies name/mint search, profiles, pool prices, activity, and artwork. The explore feed combines recently profiled and boosted Solana mints, then filters out pools below the tradeable liquidity floor.
+- The market terminal offers Trending, New pairs, Top volume, and Top gainers views. Mint addresses remain visible because token names, symbols, and logos can be impersonated.
+- Token pages embed GeckoTerminal's interactive chart for the selected Solana pool. The app also stores one market snapshot per token per minute, keeps up to 14 days, and uses the latest saved market catalogue when live discovery is unavailable.
 - Server-only trade execution fetches current prices, verifies pool liquidity and holdings, applies 1% slippage and a 0.5% fee, and records trades. Balances are stored as integer lamports (`BigInt`); token quantities and market prices are persisted as decimal strings.
-- Prisma schema separates users, token holdings, and trade records. The default `prisma/schema.prisma` uses SQLite for local development. Vercel uses `prisma/schema.postgresql.prisma`; its build command syncs that schema and generates the matching client against the configured Postgres database.
+- Prisma stores users, holdings, trades, the discovered token catalogue, and timestamped market snapshots. The default `prisma/schema.prisma` uses SQLite locally. Vercel uses `prisma/schema.postgresql.prisma`; its build command applies the schema and generates the matching client against the configured Postgres database.
 - Passwords use bcrypt hashes. Sessions are signed JWTs in HTTP-only, SameSite cookies. No wallet or key handling exists.
 - Basic security headers are configured in `next.config.ts`; API inputs are validated with Zod and rate limited in-process.
 
@@ -63,10 +65,10 @@ For a local smoke test without an external market connection, set `MARKET_DATA_M
 
 ## Known limitations
 
-- Market providers and free-tier rate limits can be unavailable or delayed. Search is cached briefly; candles may be missing for new pools.
+- Free market-data providers can be unavailable or delayed. The browse feed includes DexScreener-profiled or boosted tokens with active liquidity; it is not a complete index of every mint on Solana. Search by exact mint to open any token DexScreener indexes.
 - Daily and weekly leaderboard filters count trades in those periods; return percentage is still measured against the original 10 SOL baseline because the app does not yet store balance snapshots.
 - The in-memory rate limiter resets on server restarts and does not coordinate across serverless instances.
-- Historical token prices are not retained, so unrealized portfolio values depend on current provider responses.
+- Saved market snapshots cover tokens users discover or open, are sampled at most once per minute, and are pruned after 14 days. Historical prices for every Solana token are not retained.
 - Use persistent Postgres for real deployments; the included SQLite setup is intended for local development.
 
 ## Disclaimer

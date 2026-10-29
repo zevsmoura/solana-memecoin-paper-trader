@@ -1,11 +1,93 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowUpRight, ExternalLink, ShieldCheck } from "lucide-react";
 import { Header } from "@/components/header";
 import { PriceChart } from "@/components/price-chart";
+import { TokenImage } from "@/components/token-image";
 import { TradePanel } from "@/components/trade-panel";
-import { getChart, getToken } from "@/lib/price-provider";
 import { currentUser } from "@/lib/auth";
-import { usd } from "@/lib/money";
+import { db } from "@/lib/db";
 import { MIN_LIQUIDITY_USD } from "@/lib/config";
-export const dynamic="force-dynamic";
-export default async function TokenPage({params}:{params:Promise<{address:string}>}){const {address}=await params;let token;try{token=await getToken(address)}catch{notFound()}let points:{time:number;close:number}[]=[];let chartError="";try{points=await getChart(address,token.pairAddress)}catch(e){chartError=e instanceof Error?e.message:"Chart unavailable."}const user=await currentUser();return <><Header/><main className="mx-auto max-w-6xl px-5 py-8"><Link href="/" className="text-sm muted hover:text-white">← Markets</Link><div className="mt-7 grid gap-6 lg:grid-cols-[1fr_330px]"><section><div className="glass p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-center gap-4"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#1c3026] text-lg font-bold text-[#9ce9b8]">{token.symbol.slice(0,2).toUpperCase()}</span><div><p className="text-sm muted">{token.name}</p><h1 className="mt-1 text-3xl font-semibold">{token.symbol}</h1><p className="mt-1 font-mono text-xs muted">{token.address.slice(0,8)}…{token.address.slice(-7)}</p></div></div><a href={`https://dexscreener.com/solana/${token.pairAddress}`} target="_blank" rel="noreferrer" className="pill text-xs text-[#a3efbf]">View on DexScreener ↗</a></div><div className="mt-8 flex flex-wrap items-end gap-4"><strong className="text-4xl font-semibold">{usd(Number(token.priceUsd))}</strong><span className={`mb-1 rounded-full px-2 py-1 text-sm ${token.priceChange24h>=0?"bg-[#13271b] positive":"bg-[#2a171c] negative"}`}>{token.priceChange24h>=0?"+":""}{token.priceChange24h.toFixed(2)}%</span><span className="mb-1 text-xs muted">24h</span></div></div><div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">{[{label:"Liquidity",value:usd(token.liquidityUsd)},{label:"24h volume",value:usd(token.volume24h)},{label:"Market cap",value:token.marketCap?usd(token.marketCap):"—"},{label:"Exchange",value:token.dexId}].map(x=><div key={x.label} className="glass p-4"><p className="text-xs muted">{x.label}</p><strong className="mt-2 block text-base">{x.value}</strong></div>)}</div>{points.length?<div className="mt-4"><PriceChart points={points}/></div>:<p className="glass mt-4 p-5 text-sm muted">{chartError}</p>}<p className="mt-4 text-xs muted">Chart: GeckoTerminal public API · token data: DexScreener</p></section><aside className="space-y-4"><TradePanel address={token.address} symbol={token.symbol} price={Number(token.priceUsd)} loggedIn={!!user}/><div className="glass p-5"><p className="text-sm font-semibold">Pool health</p><div className="mt-4 flex justify-between text-sm"><span className="muted">Pool liquidity</span><span>{usd(token.liquidityUsd)}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded bg-[#1e2934]"><div className="h-full rounded bg-[#8ce9b2]" style={{width:`${Math.min(100,token.liquidityUsd/50000*100)}%`}}/></div><p className="mt-3 text-xs muted">Trades require at least {usd(MIN_LIQUIDITY_USD)} liquidity.</p></div></aside></div></main></>}
+import { usd } from "@/lib/money";
+import { getToken, type TokenMarket } from "@/lib/price-provider";
+import { getStoredChart, getStoredToken, saveMarketData } from "@/lib/market-store";
+
+export const dynamic = "force-dynamic";
+
+export default async function TokenPage({ params }: { params: Promise<{ address: string }> }) {
+  const { address } = await params;
+  let token: TokenMarket;
+  let live = true;
+  try {
+    token = await getToken(address);
+    await saveMarketData([token]).catch(() => undefined);
+  } catch {
+    const stored = await getStoredToken(address).catch(() => null);
+    if (!stored) notFound();
+    token = stored;
+    live = false;
+  }
+
+  const [user, snapshots] = await Promise.all([
+    currentUser(),
+    getStoredChart(token.address).catch(() => []),
+  ]);
+  const holding = user ? await db.holding.findUnique({ where: { userId_tokenAddress: { userId: user.id, tokenAddress: token.address } }, select: { quantity: true } }).catch(() => null) : null;
+  const dexUrl = token.pairAddress ? `https://dexscreener.com/solana/${token.pairAddress}` : `https://dexscreener.com/solana/${token.address}`;
+  const buys = token.buys24h ?? 0;
+  const sells = token.sells24h ?? 0;
+
+  return <>
+    <Header />
+    <main className="mx-auto max-w-[1500px] px-4 pb-10 pt-4 md:px-7">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Link href="/" className="text-xs text-[#8b98a6] hover:text-white">← Markets</Link>
+        <div className="flex items-center gap-2 text-[10px] text-[#7f8c99]"><span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-[#a9f05e]" : "bg-amber-400"}`} />{live ? "Live market" : "Saved snapshot"}<span>·</span>Solana</div>
+      </div>
+
+      {!live && <p className="mb-3 rounded-lg border border-[#624b2d] bg-[#251d12] px-3 py-2 text-xs text-[#f1cb82]">Current provider data is unavailable. This saved quote is for reference only; trading is disabled until live pricing returns.</p>}
+
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
+        <section className="min-w-0 space-y-3">
+          <div className="rounded-xl border border-[#222a34] bg-[#0d1118] p-4 md:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <TokenImage src={token.imageUrl} symbol={token.symbol} size={48} />
+                <div className="min-w-0"><h1 className="truncate text-xl font-semibold text-[#f0f3f6]">{token.name} <span className="text-[#8995a2]">${token.symbol}</span></h1>
+                  <div className="mt-1 flex flex-wrap items-center gap-2"><span className="font-mono text-[11px] text-[#8a96a4]">{token.address.slice(0, 8)}…{token.address.slice(-7)}</span><span className="rounded bg-[#171e27] px-1.5 py-0.5 text-[9px] text-[#929eac]">{token.dexId}</span><span className="rounded bg-[#15231a] px-1.5 py-0.5 text-[9px] text-[#a9e49a]">SOLANA</span></div>
+                </div>
+              </div>
+              <a href={dexUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-[#2a333e] px-2.5 py-2 text-[11px] text-[#aab4c0] hover:bg-[#171e27]">DexScreener <ExternalLink size={12} /></a>
+            </div>
+            <div className="mt-5 flex flex-wrap items-end gap-x-3 gap-y-1"><strong className="font-mono text-3xl font-semibold tracking-tight">{usd(Number(token.priceUsd))}</strong>
+              <span className={`mb-1 text-xs font-medium ${(token.priceChange24h ?? 0) >= 0 ? "positive" : "negative"}`}>{(token.priceChange24h ?? 0) >= 0 ? "+" : ""}{(token.priceChange24h ?? 0).toFixed(2)}% <span className="text-[#758190]">24h</span></span></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            {[
+              { label: "Liquidity", value: usd(token.liquidityUsd) },
+              { label: "24h volume", value: usd(token.volume24h) },
+              { label: "Market cap / FDV", value: token.marketCap ? usd(token.marketCap) : "—" },
+              { label: "1h change", value: `${(token.priceChange1h ?? 0).toFixed(2)}%` },
+              { label: "6h change", value: `${(token.priceChange6h ?? 0).toFixed(2)}%` },
+              { label: "24h buys / sells", value: `${buys.toLocaleString()} / ${sells.toLocaleString()}` },
+            ].map(item => <div key={item.label} className="rounded-lg border border-[#202833] bg-[#0d1118] px-3 py-2.5"><p className="text-[9px] uppercase tracking-wide text-[#758293]">{item.label}</p><strong className="mt-1 block truncate text-xs font-semibold text-[#dbe1e8]">{item.value}</strong></div>)}
+          </div>
+
+          <PriceChart pairAddress={token.pairAddress} address={token.address} points={snapshots} />
+        </section>
+
+        <aside className="space-y-3 xl:sticky xl:top-4">
+          <TradePanel address={token.address} symbol={token.symbol} price={Number(token.priceUsd)} loggedIn={!!user} marketLive={live} holdingQuantity={holding?.quantity ?? "0"} />
+          <section className="rounded-xl border border-[#222a34] bg-[#0d1118] p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#e1e7ec]"><ShieldCheck size={14} className="text-[#a9f05e]" />Pool checks</div>
+            <div className="mt-3 flex justify-between text-[11px]"><span className="text-[#84909d]">Pool liquidity</span><span>{usd(token.liquidityUsd)}</span></div>
+            <div className="mt-2 h-1 overflow-hidden rounded bg-[#202833]"><div className="h-full rounded bg-[#a9f05e]" style={{ width: `${Math.min(100, token.liquidityUsd / MIN_LIQUIDITY_USD * 100)}%` }} /></div>
+            <p className="mt-2 text-[10px] leading-4 text-[#778492]">Paper trades require at least {usd(MIN_LIQUIDITY_USD)} pool liquidity. Verify the mint; names and logos can be copied.</p>
+          </section>
+          <Link href={`https://solscan.io/token/${encodeURIComponent(token.address)}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-[#202833] bg-[#0d1118] p-3 text-[11px] text-[#aab4c0] hover:text-white">Check mint on Solscan <ArrowUpRight size={13} /></Link>
+        </aside>
+      </div>
+    </main>
+  </>;
+}

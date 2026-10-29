@@ -35,4 +35,31 @@ describe("normalizePairs", () => {
     second.baseToken = { address: "Mint222222222222222222222222222222222222222", name: "Dog Coin Copy", symbol: "DOG" };
     expect(normalizePairs([pool("first", "1", 20_000), second])).toHaveLength(2);
   });
+
+  it("normalizes chart, icon, and short interval market metadata", () => {
+    const market = normalizePairs([{
+      ...pool("metadata", "0.25", 20_000),
+      info: { imageUrl: "https://cdn.example.test/dog.png" },
+      priceChange: { h1: 1.2, h6: -3.4, h24: 8.9 },
+      txns: { h24: { buys: 15, sells: 8 } },
+      pairCreatedAt: 1_700_000_000_000,
+    }])[0];
+
+    expect(market).toMatchObject({
+      imageUrl: "https://cdn.example.test/dog.png",
+      priceChange1h: 1.2,
+      priceChange6h: -3.4,
+      buys24h: 15,
+      sells24h: 8,
+      pairCreatedAt: 1_700_000_000_000,
+    });
+  });
+
+  it("ignores insecure image URLs from upstream market metadata", () => {
+    const market = normalizePairs([{
+      ...pool("insecure-icon", "0.25", 20_000),
+      info: { imageUrl: "http://cdn.example.test/dog.png" },
+    }])[0];
+    expect(market.imageUrl).toBeNull();
+  });
 });

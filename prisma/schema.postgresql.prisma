@@ -18,6 +18,48 @@ model User {
   trades       Trade[]
 }
 
+model MarketToken {
+  address       String            @id
+  symbol        String
+  name          String
+  imageUrl      String?
+  pairAddress   String
+  dexId         String
+  priceUsd      String
+  priceChange1h Float             @default(0)
+  priceChange6h Float             @default(0)
+  priceChange24h Float            @default(0)
+  buys24h       Int               @default(0)
+  sells24h      Int               @default(0)
+  liquidityUsd  Float             @default(0)
+  volume24h     Float             @default(0)
+  marketCap     String?
+  pairCreatedAt DateTime?
+  updatedAt     DateTime          @updatedAt
+  snapshots     MarketSnapshot[]
+
+  @@index([updatedAt])
+  @@index([volume24h])
+  @@index([liquidityUsd])
+}
+
+model MarketSnapshot {
+  id             String      @id @default(cuid())
+  tokenAddress   String
+  minuteBucket   Int
+  priceUsd       String
+  priceChange24h Float       @default(0)
+  liquidityUsd   Float       @default(0)
+  volume24h      Float       @default(0)
+  marketCap      String?
+  capturedAt     DateTime    @default(now()) @updatedAt
+  token          MarketToken @relation(fields: [tokenAddress], references: [address], onDelete: Cascade)
+
+  @@unique([tokenAddress, minuteBucket])
+  @@index([tokenAddress, capturedAt])
+  @@index([capturedAt])
+}
+
 model Holding {
   id            String   @id @default(cuid())
   userId        String
