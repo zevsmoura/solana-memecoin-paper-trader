@@ -56,10 +56,16 @@ For a local smoke test without an external market connection, set `MARKET_DATA_M
 
 ## Deploy to Vercel
 
-1. Push this repository to GitHub and import it into Vercel.
-2. Configure a managed Postgres database. Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma` and set `DATABASE_URL` to the provider's connection string.
-3. Configure `SESSION_SECRET` (32+ random characters) and the optional trade settings in Vercel environment variables.
-4. Run `pnpm prisma db push` against the production database, then deploy. Keep Prisma Client generation in the build/install lifecycle.
+1. Create an empty GitHub repository named `solana-memecoin-paper-trader`, then push this committed `main` branch (the local checkout already has `origin` configured):
+
+   ```bash
+   git push -u origin main
+   ```
+
+2. Import the repository into Vercel.
+3. Configure a managed Postgres database. Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma` and set `DATABASE_URL` to the provider's connection string.
+4. Configure `SESSION_SECRET` (32+ random characters) and the optional trade settings in Vercel environment variables.
+5. Run `pnpm prisma db push` against the production database, then deploy. Keep Prisma Client generation in the build/install lifecycle.
 
 ## Known limitations
 
