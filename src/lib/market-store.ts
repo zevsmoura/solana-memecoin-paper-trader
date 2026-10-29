@@ -126,8 +126,7 @@ export async function getStoredMarkets(query?: string) {
   });
   return rows
     .map(toMarket)
-    .filter(token => !normalizedQuery || [token.address, token.name, token.symbol].some(value => value.toLowerCase().includes(normalizedQuery)))
-    .slice(0, 30);
+    .filter(token => !normalizedQuery || [token.address, token.name, token.symbol].some(value => value.toLowerCase().includes(normalizedQuery)));
 }
 
 export async function getStoredToken(address: string) {

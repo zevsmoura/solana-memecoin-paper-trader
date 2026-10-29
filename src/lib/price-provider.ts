@@ -1,7 +1,5 @@
-import { MIN_LIQUIDITY_USD } from "@/lib/config";
-
-/** DexScreener is the only market-data integration. Keep its API details here so
- * another provider can replace it without changing the rest of the app. */
+/** Centralize live Solana market sources so providers can be swapped without
+ * changing the rest of the app. */
 export type TokenMarket = {
   address: string;
   name: string;
@@ -37,6 +35,8 @@ export type DexPair = {
   info?: { imageUrl?: string };
 };
 type Profile = { chainId?: string; tokenAddress?: string; icon?: string };
+type GeckoPool = { relationships?: { base_token?: { data?: { id?: string } } }; attributes?: { base_token_price_usd?: string } };
+type GeckoPoolResponse = { data?: GeckoPool[] };
 
 const TTL = 20_000;
 const cache = new Map<string, { expires: number; data: TokenMarket[] }>();
@@ -136,14 +136,22 @@ export async function getDiscoveryTokens(): Promise<TokenMarket[]> {
     getJson<Profile[]>("https://api.dexscreener.com/token-profiles/latest/v1"),
     getJson<Profile[]>("https://api.dexscreener.com/token-boosts/latest/v1"),
     getJson<Profile[]>("https://api.dexscreener.com/token-boosts/top/v1"),
+    getJson<GeckoPoolResponse>("https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=1"),
+    getJson<GeckoPoolResponse>("https://api.geckoterminal.com/api/v2/networks/solana/top_pools?page=1"),
   ]);
-  const profiles = sources.flatMap(result => result.status === "fulfilled" ? result.value : []);
-  if (!profiles.length) throw new Error("Solana token discovery is temporarily unavailable.");
+  const profiles = sources.slice(0, 3).flatMap(result => result.status === "fulfilled" ? result.value as Profile[] : []);
+  const poolSources = sources.slice(3).flatMap(result => result.status === "fulfilled" ? (result.value as GeckoPoolResponse).data ?? [] : []);
+  if (!profiles.length && !poolSources.length) throw new Error("Solana token discovery is temporarily unavailable.");
   const iconByAddress = new Map<string, string>();
-  const addresses = [...new Set(profiles.filter(item => item.chainId === "solana" && item.tokenAddress).map(item => {
+  const profileAddresses = profiles.filter(item => item.chainId === "solana" && item.tokenAddress).map(item => {
     if (item.icon) iconByAddress.set(item.tokenAddress!.toLowerCase(), item.icon);
     return item.tokenAddress!;
-  }))];
+  });
+  const poolAddresses = poolSources.flatMap(pool => {
+    const id = pool.relationships?.base_token?.data?.id;
+    return id?.startsWith("solana_") ? [id.slice("solana_".length)] : [];
+  });
+  const addresses = [...new Set([...profileAddresses, ...poolAddresses])];
   if (!addresses.length) return [];
   const chunks = Array.from({ length: Math.ceil(addresses.length / 30) }, (_, index) => addresses.slice(index * 30, (index + 1) * 30));
   const pairResults = await Promise.allSettled(chunks.map(chunk =>
@@ -151,11 +159,9 @@ export async function getDiscoveryTokens(): Promise<TokenMarket[]> {
   ));
   const pairs = pairResults.flatMap(result => result.status === "fulfilled" ? result.value : []);
   if (!pairs.length) throw new Error("Solana markets are temporarily unavailable.");
-  const tokens = normalizePairs(pairs, MIN_LIQUIDITY_USD)
+  const tokens = normalizePairs(pairs)
     .map(token => ({ ...token, imageUrl: token.imageUrl ?? safeImageUrl(iconByAddress.get(token.address.toLowerCase())) }))
-    .filter(token => token.volume24h > 0)
-    .sort((a, b) => b.volume24h - a.volume24h)
-    .slice(0, 30);
+    .sort((a, b) => b.volume24h - a.volume24h);
   cache.set(key, { data: tokens, expires: Date.now() + TTL });
   return tokens;
 }
@@ -175,7 +181,14 @@ export async function searchTokens(query: string): Promise<TokenMarket[]> {
     .filter(token => !exactAddress || token.address.toLowerCase() === normalizedQuery.toLowerCase())
     // Symbol/name searches can include counterfeit lookalikes. Put the most
     // actively traded candidate first; the mint remains visible for verification.
-    .sort((a, b) => b.volume24h - a.volume24h || b.liquidityUsd - a.liquidityUsd)
+    .sort((a, b) => {
+      const queryLower = normalizedQuery.toLowerCase();
+      const rank = (token: TokenMarket) => token.symbol.toLowerCase() === queryLower ? 0
+        : token.name.toLowerCase() === queryLower ? 1
+        : token.symbol.toLowerCase().startsWith(queryLower) || token.name.toLowerCase().startsWith(queryLower) ? 2
+        : token.symbol.toLowerCase().includes(queryLower) || token.name.toLowerCase().includes(queryLower) ? 3 : 4;
+      return rank(a) - rank(b) || b.volume24h - a.volume24h || b.liquidityUsd - a.liquidityUsd;
+    })
     .slice(0, 30);
   cache.set(key, { data: tokens, expires: Date.now() + TTL });
   return tokens;
@@ -199,12 +212,27 @@ export async function getSolUsd(): Promise<number> {
   return Number(token.priceUsd);
 }
 
-export async function getChart(address: string, pairAddress: string) {
-  if (mockMode) return Array.from({ length: 48 }, (_, i) => ({ time: Math.floor(Date.now() / 1000) - (47 - i) * 14400, open: .000009 + i * .00000002, high: .0000095 + i * .00000002, low: .0000085 + i * .00000002, close: .000009 + i * .00000002, volume: 10000 + i * 25 }));
+export type ChartTimeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+
+const chartIntervals: Record<ChartTimeframe, { endpoint: string; aggregate: number }> = {
+  "1m": { endpoint: "minute", aggregate: 1 },
+  "5m": { endpoint: "minute", aggregate: 5 },
+  "15m": { endpoint: "minute", aggregate: 15 },
+  "1h": { endpoint: "hour", aggregate: 1 },
+  "4h": { endpoint: "hour", aggregate: 4 },
+  "1d": { endpoint: "day", aggregate: 1 },
+};
+
+export async function getChart(address: string, pairAddress: string, timeframe: ChartTimeframe = "1h") {
+  const interval = chartIntervals[timeframe];
+  if (mockMode) {
+    const seconds = interval.endpoint === "minute" ? interval.aggregate * 60 : interval.endpoint === "hour" ? interval.aggregate * 3600 : 86400;
+    return Array.from({ length: 100 }, (_, i) => ({ time: Math.floor(Date.now() / 1000) - (99 - i) * seconds, open: .000009 + i * .00000002, high: .0000095 + i * .00000002, low: .0000085 + i * .00000002, close: .000009 + i * .00000002, volume: 10000 + i * 25 }));
+  }
   const pool = pairAddress || address;
   let response: Response;
   try {
-    response = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${encodeURIComponent(pool)}/ohlcv/hour?aggregate=4&limit=48&currency=usd`, { headers: { Accept: "application/json;version=20230203" }, next: { revalidate: 60 }, signal: AbortSignal.timeout(8_000) });
+    response = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${encodeURIComponent(pool)}/ohlcv/${interval.endpoint}?aggregate=${interval.aggregate}&limit=100&currency=usd`, { headers: { Accept: "application/json;version=20230203" }, next: { revalidate: timeframe === "1m" ? 15 : 45 }, signal: AbortSignal.timeout(8_000) });
   } catch {
     throw new Error("Price chart is temporarily unavailable.");
   }
