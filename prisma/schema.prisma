@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  username     String       @unique
+  email        String       @unique
+  passwordHash String
+  balance      BigInt       @default(10000000000)
+  createdAt    DateTime     @default(now())
+  holdings     Holding[]
+  trades       Trade[]
+}
+
+model Holding {
+  id            String   @id @default(cuid())
+  userId        String
+  tokenAddress  String
+  symbol        String
+  name          String
+  quantity      String
+  averageEntry  String
+  realizedPnl   String   @default("0")
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, tokenAddress])
+  @@index([userId])
+}
+
+model Trade {
+  id           String   @id @default(cuid())
+  userId       String
+  tokenAddress String
+  symbol       String
+  side         String
+  quantity     String
+  priceUsd     String
+  solAmount    BigInt
+  feeLamports  BigInt
+  realizedPnlUsd String  @default("0")
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
