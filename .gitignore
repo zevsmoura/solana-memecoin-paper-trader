@@ -12,4 +12,5 @@ coverage/
 prisma/*.db
 prisma/*.db-journal
 tsconfig.tsbuildinfo
+next-env.d.ts
 .vercel/
