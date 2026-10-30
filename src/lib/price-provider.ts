@@ -37,6 +37,8 @@ export type DexPair = {
 type Profile = { chainId?: string; tokenAddress?: string; icon?: string };
 type GeckoPool = { relationships?: { base_token?: { data?: { id?: string } } }; attributes?: { base_token_price_usd?: string } };
 type GeckoPoolResponse = { data?: GeckoPool[] };
+type GeckoTokenPool = { attributes?: { address?: string; reserve_in_usd?: string } };
+type GeckoTokenPoolsResponse = { data?: GeckoTokenPool[] };
 
 const TTL = 20_000;
 const cache = new Map<string, { expires: number; data: TokenMarket[] }>();
@@ -229,16 +231,34 @@ export async function getChart(address: string, pairAddress: string, timeframe: 
     const seconds = interval.endpoint === "minute" ? interval.aggregate * 60 : interval.endpoint === "hour" ? interval.aggregate * 3600 : 86400;
     return Array.from({ length: 100 }, (_, i) => ({ time: Math.floor(Date.now() / 1000) - (99 - i) * seconds, open: .000009 + i * .00000002, high: .0000095 + i * .00000002, low: .0000085 + i * .00000002, close: .000009 + i * .00000002, volume: 10000 + i * 25 }));
   }
-  const pool = pairAddress || address;
-  let response: Response;
-  try {
-    response = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${encodeURIComponent(pool)}/ohlcv/${interval.endpoint}?aggregate=${interval.aggregate}&limit=100&currency=usd`, { headers: { Accept: "application/json;version=20230203" }, next: { revalidate: timeframe === "1m" ? 15 : 45 }, signal: AbortSignal.timeout(8_000) });
-  } catch {
-    throw new Error("Price chart is temporarily unavailable.");
+  async function loadPoolCandles(pool: string) {
+    const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${encodeURIComponent(pool)}/ohlcv/${interval.endpoint}?aggregate=${interval.aggregate}&limit=120&currency=usd`;
+    const body = await getJson<{ data?: { attributes?: { ohlcv_list?: number[][] } } }>(url);
+    const candles = body.data?.attributes?.ohlcv_list ?? [];
+    if (candles.length < 2) return null;
+    return candles.reverse().map(([time, open, high, low, close, volume]) => ({ time, open, high, low, close, volume }));
   }
-  if (!response.ok) throw new Error("Price chart is temporarily unavailable.");
-  const body = await response.json() as { data?: { attributes?: { ohlcv_list?: number[][] } } };
-  const candles = body.data?.attributes?.ohlcv_list ?? [];
-  if (candles.length < 2) throw new Error("Not enough trading history to draw a chart yet.");
-  return candles.reverse().map(([time, open, high, low, close, volume]) => ({ time, open, high, low, close, volume }));
+
+  if (pairAddress) {
+    try {
+      const candles = await loadPoolCandles(pairAddress);
+      if (candles) return candles;
+    } catch { /* Resolve a GeckoTerminal pool for this mint below. */ }
+  }
+
+  try {
+    const pools = await getJson<GeckoTokenPoolsResponse>(`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${encodeURIComponent(address)}/pools?page=1`);
+    const candidates = (pools.data ?? [])
+      .map(pool => ({ address: pool.attributes?.address, liquidity: Number(pool.attributes?.reserve_in_usd ?? 0) }))
+      .filter((pool): pool is { address: string; liquidity: number } => Boolean(pool.address))
+      .sort((a, b) => b.liquidity - a.liquidity)
+      .slice(0, 4);
+    for (const pool of candidates) {
+      try {
+        const candles = await loadPoolCandles(pool.address);
+        if (candles) return candles;
+      } catch { /* Try the next most liquid pool for this token. */ }
+    }
+  } catch { /* The chart UI can offer retry or its saved-snapshot fallback. */ }
+  throw new Error("Candles are temporarily unavailable for this pool. Try again shortly.");
 }
