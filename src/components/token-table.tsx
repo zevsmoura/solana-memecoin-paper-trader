@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Flame, ListFilter } from "lucide-react";
-import { usd } from "@/lib/money";
+import { compactUsd, usd } from "@/lib/money";
 import type { TokenMarket } from "@/lib/price-provider";
 import { TokenImage } from "@/components/token-image";
 
@@ -94,7 +94,7 @@ export function TokenTable({ tokens, query = "" }: { tokens: TokenMarket[]; quer
             <TokenImage src={token.imageUrl} symbol={token.symbol} size={34} />
             <span className="min-w-0"><strong className="block max-w-[180px] truncate text-[13px] font-semibold text-[#eef2f5]">{token.name}</strong><span className="mt-0.5 block font-mono text-[10px] text-[#818d9b]">{token.symbol} · {token.address.slice(0, 4)}…{token.address.slice(-4)}</span></span>
           </Link></td>
-          <td className="px-3 py-3 text-right font-mono text-sm font-semibold text-[#e3ebf1]">{token.marketCap ? usd(token.marketCap) : "—"}</td>
+          <td className="px-3 py-3 text-right font-mono text-sm font-semibold text-[#e3ebf1]">{token.marketCap ? compactUsd(token.marketCap) : "—"}</td>
           <td className="px-3 py-3 text-right">{change(token.priceChange24h)}</td><td className="hidden px-3 py-3 text-right text-[#aab4bf] sm:table-cell">{usd(token.volume24h)}</td>
           <td className="hidden px-3 py-3 text-right text-[#aab4bf] md:table-cell">{usd(token.liquidityUsd)}</td><td className="hidden px-3 py-3 text-right text-[#aab4bf] lg:table-cell">{pairAge(token.pairCreatedAt)}</td>
           <td className="hidden px-3 py-3 text-right font-mono text-[#9aa8b6] xl:table-cell">{usd(Number(token.priceUsd))}</td>
