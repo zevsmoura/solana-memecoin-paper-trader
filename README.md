@@ -1,77 +1,107 @@
-# Memeport — Solana memecoin paper trading
+# Memeport
 
-A responsive Next.js app for practicing Solana memecoin trades with virtual SOL and live market data. No wallet connection, real funds, or private keys are used.
+Memeport is a practice app for exploring Solana memecoins and trying trades with virtual SOL. It uses live market data, but trades only change your practice balance inside Memeport.
 
-## Requirements
+**There are no real trades, wallet connections, private keys, or real funds.**
 
-- Node.js 20.9 or later
-- pnpm 9 or later (or npm)
+## Try the app
 
-## Setup
+Open [memeport.vercel.app](https://memeport.vercel.app), create an account, and start with 10 virtual SOL.
+
+You can browse Solana tokens, search by name, ticker, or mint address, open a token page, and try the buy or sell buttons. Market caps use short labels such as `$2.1M` and `$100K`. On a token page, the chart sits beside the instant-trade panel. You can change the trade presets in that panel.
+
+## Run Memeport on your computer
+
+You need [Node.js 20.9 or newer](https://nodejs.org/) and pnpm. Install pnpm with:
 
 ```bash
+npm install --global pnpm
+```
+
+Then download the project and install its packages:
+
+```bash
+git clone https://github.com/zevsmoura/solana-memecoin-paper-trader.git
+cd solana-memecoin-paper-trader
 pnpm install
+```
+
+Create your local settings file. On Windows PowerShell, run:
+
+```powershell
 Copy-Item .env.example .env
 ```
 
-Set `SESSION_SECRET` to a random string of at least 32 characters. Then initialize the local SQLite database and start the dev server:
+On macOS or Linux, run:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and replace the example `SESSION_SECRET` with a random string that is at least 32 characters long. You can make one by running:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Copy the generated value into `.env`. Then create the local database and start Memeport:
 
 ```bash
 pnpm db:push
 pnpm dev
 ```
 
-Open http://localhost:3000 and sign up. New accounts start with 10 virtual SOL.
+Visit [http://localhost:3000](http://localhost:3000). The local database is saved in `prisma/dev.db`.
 
-## Environment variables
+## How it works
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | `file:./dev.db` | Prisma database URL. SQLite for local development; use a hosted Postgres URL and update the Prisma provider for persistent Vercel deployments. |
-| `SESSION_SECRET` | none | At least 32 random characters for signed HTTP-only sessions. |
-| `STARTING_BALANCE_LAMPORTS` | `10000000000` | Virtual opening balance in lamports (10 SOL). |
-| `MIN_LIQUIDITY_USD` | `10000` | Minimum pool liquidity allowed for trades. |
-| `TRADE_FEE_BPS` | `50` | Simulated trade fee in basis points (50 = 0.5%). |
-| `MARKET_DATA_MOCK` | `false` | Development only. Set to `true` for deterministic local end-to-end checks; it is ignored in production. |
+- New accounts start with 10 virtual SOL. Passwords are hashed, and sign-in uses a secure session cookie.
+- The market list combines newly created and popular Solana pools with recently listed and promoted tokens. It refreshes while the page is open. Search suggestions appear as you type, and you can sort the market columns.
+- Token charts use TradingView Lightweight Charts to draw candlesticks from GeckoTerminal pool data. DexScreener provides token search and market details.
+- Buy and sell buttons use saved presets. Clicking one submits a paper trade immediately. The server checks the current price, your balance or token holdings, and pool liquidity before recording the trade. Each trade simulates 1% slippage and a 0.5% fee.
+- Your holdings, trade history, and practice balance are stored in the database. No blockchain transactions are made.
 
-## Scripts
+## Settings
 
-- `pnpm dev` — development server
-- `pnpm build` / `pnpm start` — production build and server
-- `pnpm lint` — ESLint
-- `pnpm typecheck` — TypeScript validation
-- `pnpm test` — trade and market-provider unit tests
-- `pnpm db:push` — synchronize Prisma schema to the database
+These values are in `.env`:
 
-For a local smoke test without an external market connection, set `MARKET_DATA_MOCK="true"` in `.env`, run the app in development mode, and use the demo `TEST` token. Never set this for production.
+| Setting | What it changes |
+| --- | --- |
+| `DATABASE_URL` | Where the database is stored. The example uses a local SQLite file. |
+| `SESSION_SECRET` | A random secret used to protect sign-in sessions. Use at least 32 characters. |
+| `STARTING_BALANCE_LAMPORTS` | The starting virtual SOL balance. The default is 10 SOL. |
+| `MIN_LIQUIDITY_USD` | The minimum pool liquidity required to allow a paper trade. The default is $10,000. |
+| `TRADE_FEE_BPS` | The simulated fee. The default `50` means 0.5%. |
+| `MARKET_DATA_MOCK` | Uses a fake demo token for local development when set to `true`. Leave this `false` for real market data. |
 
-## Architecture
+## Useful commands
 
-- Next.js App Router with TypeScript, Tailwind CSS 4, and server-rendered market/account pages.
-- `src/lib/price-provider.ts` isolates public market APIs. DexScreener supplies name/mint search, profiles, boost activity, prices, trading activity, and artwork. GeckoTerminal adds Solana new-pool and top-pool discovery plus pool OHLCV candles.
-- The market terminal refreshes the discovery catalogue every 45 seconds while visible, offers Trending, New pairs, Top volume, and Top gainers views, and lets players sort each market-data column in either direction. Search suggestions appear as the player types, and market caps use compact K/M/B labels.
-- Token pages render candlesticks with TradingView Lightweight Charts using GeckoTerminal pool data. The chart offers 1m, 5m, 15m, 1h, 4h, and 1d intervals, refreshes while visible, can retry failed requests, and resolves an alternate GeckoTerminal pool for the mint if the selected pair has no candle history. The app also stores one market snapshot per token per minute, keeps up to 14 days, and uses the latest saved market catalogue when live discovery is unavailable.
-- The instant trade panel has editable, browser-saved SOL buy presets and percentage sell presets. Each preset executes immediately through the server-side paper-trade validator.
-- Server-only trade execution fetches current prices, verifies pool liquidity and holdings, applies 1% slippage and a 0.5% fee, and records trades. Balances are stored as integer lamports (`BigInt`); token quantities and market prices are persisted as decimal strings.
-- Prisma stores users, holdings, trades, the discovered token catalogue, and timestamped market snapshots. The default `prisma/schema.prisma` uses SQLite locally. Vercel uses `prisma/schema.postgresql.prisma`; its build command applies the schema and generates the matching client against the configured Postgres database.
-- Passwords use bcrypt hashes. Sessions are signed JWTs in HTTP-only, SameSite cookies. No wallet or key handling exists.
-- Basic security headers are configured in `next.config.ts`; API inputs are validated with Zod and rate limited in-process.
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Starts the local development app. |
+| `pnpm db:push` | Creates or updates the local database tables. |
+| `pnpm lint` | Checks code style and common mistakes. |
+| `pnpm typecheck` | Checks TypeScript types. |
+| `pnpm test` | Runs the trade, market-data, and formatting tests. |
+| `pnpm build` | Creates a production build. |
+| `pnpm start` | Runs the production build on your computer. |
 
-## Deploy to Vercel
+## Deploy your own copy
 
-1. Import `zevsmoura/solana-memecoin-paper-trader` into Vercel.
-2. Attach a managed Postgres database and make its `DATABASE_URL` available to the project.
-3. Configure `SESSION_SECRET` (32+ random characters) and any optional trade settings in Vercel environment variables.
-4. Deploy. `vercel.json` syncs the PostgreSQL schema and generates the matching Prisma Client before building.
+1. Import this GitHub repository into [Vercel](https://vercel.com/).
+2. Add a managed PostgreSQL database to the Vercel project.
+3. Set `DATABASE_URL` to the database connection string and set `SESSION_SECRET` to a new random value of at least 32 characters.
+4. Deploy. The included Vercel build command prepares the database and builds the app.
 
-## Known limitations
+Use PostgreSQL for a hosted deployment. The SQLite database is intended for local development.
 
-- Free market-data providers can be unavailable or delayed. Discovery combines recent and top pools with DexScreener's recent profiles and boosts; it is not a complete index of every mint on Solana. Search by exact mint to open any token DexScreener indexes. Thin pools can appear in discovery, but server-side checks block trading below the configured liquidity minimum.
-- Daily and weekly leaderboard filters count trades in those periods; return percentage is still measured against the original 10 SOL baseline because the app does not yet store balance snapshots.
-- The in-memory rate limiter resets on server restarts and does not coordinate across serverless instances.
-- Saved market snapshots cover tokens users discover or open, are sampled at most once per minute, and are pruned after 14 days. Historical prices for every Solana token are not retained.
-- Use persistent Postgres for real deployments; the included SQLite setup is intended for local development.
+## Notes and limitations
+
+- Free market-data services can be delayed or temporarily unavailable. The discovery list is not a complete list of every token on Solana. You can search for a mint address when a token does not appear in discovery.
+- Tokens with pool liquidity below the configured minimum can be shown, but cannot be traded in the app.
+- The free data sources do not provide a complete price history for every token. Some new or inactive pools may not have enough candle data to display a full chart.
+- The in-memory request limit resets when the server restarts and does not share counts across serverless instances.
 
 ## Disclaimer
 
-This app is a simulation for education and entertainment only. It does not execute real trades, connect to wallets, or provide financial advice. Token data can be inaccurate, stale, or incomplete. Nothing here is financial advice.
+Memeport is for education and entertainment. It is a simulation, does not execute real trades, and is not financial advice. Token information may be incomplete or inaccurate.
